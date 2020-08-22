@@ -1,5 +1,8 @@
 from sys import argv
+import os
+import json
 from typing import *
+from PIL import Image
 
 
 def format_relative_coordinates(input_coordinates: List[int]) -> List[int]:
@@ -59,7 +62,45 @@ def create_vot_json_file(root_dir: str):
       "width": 123   //check actual value
     }
     """
-    print(root_dir)
+
+    json_data: Dict[str, Any] = {}
+    for (root, dirs, files) in os.walk(root_dir):
+        if not root.endswith("RGB"):
+            continue
+
+        directory_data: Dict[str, Any] = {}
+        class_name = root.split("/")[-2]  # second last item, since path ends in /RGB
+        img_files = [f for f in files if f.endswith("jpg")]
+
+        directory_data["video_dir"] = class_name
+
+        # remove the relative directory, keep only the needed path info
+        directory_data["img_names"] = [os.path.join(root.split(root_dir)[-1], img_name) for img_name in img_files]
+
+        ground_truths = [line.strip().split("\t") for line in
+                         open(os.path.join(root, "groundtruth_rect.txt"), "r").readlines()]
+        directory_data["gt_rect"] = [
+            format_relative_coordinates(
+                [int(gt[0]), int(gt[1]), int(gt[2]), int(gt[3])])
+            for gt in ground_truths]
+
+        # First bounding box is used to initialise tracking
+        directory_data["init_rect"] = directory_data["gt_rect"][0]
+
+        # Dummy keys to be filled by arrays of 0s
+        for key in ["camera_motion", "illum_change", "motion_change", "occlusion"]:
+            directory_data[key] = [0, ] * len(img_files)
+
+        random_image_path = os.path.join(root, img_files.pop())
+        directory_data["width"], directory_data["height"] = Image.open(random_image_path).size
+
+        json_data[class_name] = directory_data
+
+    json.dump(
+        obj=json_data,
+        fp=open(
+            os.path.join(root_dir, "vot2018.json"), "w")
+    )
 
 
 if __name__ == '__main__':
